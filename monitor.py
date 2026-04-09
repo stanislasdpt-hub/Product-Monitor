@@ -32,7 +32,7 @@ HEADERS = {
 previous_states = {}
 
 def fetch_page(site: str) -> str:
-if SCRAPER_API_KEY and ("bigw.com.au" in site or "ebgames.com.au" in site):
+    if SCRAPER_API_KEY and ("bigw.com.au" in site or "ebgames.com.au" in site):
         scraper_url = f"http://api.scraperapi.com?api_key={SCRAPER_API_KEY}&url={site}"
         resp = requests.get(scraper_url, timeout=60)
     else:
