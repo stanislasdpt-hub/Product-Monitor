@@ -36,7 +36,7 @@ def analyse_site(site: str) -> dict:
     site = site.strip()
     domain = site.replace("https://", "").replace("http://", "").split("/")[0]
     try:
-        resp = requests.get(site, headers=HEADERS, timeout=20)
+        resp = requests.get(site, headers=HEADERS, timeout=40)
         html = resp.text
         text_only = re.sub(r"<[^>]+>", " ", html)
         text_only = re.sub(r"\s+", " ", text_only).strip()[:6000]
