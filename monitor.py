@@ -45,12 +45,46 @@ Réponds UNIQUEMENT avec un objet JSON valide, sans markdown ni backticks :
         )
 
         text = "".join(b.text for b in response.content if hasattr(b, "text"))
-        start = text.find("{")
-        end   = text.rfind("}") + 1
-        if start == -1 or end == 0:
+
+        # Tentative 1 : extraire le JSON brut
+        parsed = None
+        for start in range(len(text)):
+            if text[start] == "{":
+                for end in range(len(text), start, -1):
+                    if text[end-1] == "}":
+                        try:
+                            parsed = json.loads(text[start:end])
+                            break
+                        except Exception:
+                            continue
+            if parsed:
+                break
+
+        # Tentative 2 : demander une reformulation si pas de JSON
+        if not parsed:
+            retry = client.messages.create(
+                model="claude-sonnet-4-20250514",
+                max_tokens=500,
+                messages=[
+                    {"role": "user", "content": f"Voici une analyse de produit : {text[:1000]}\n\nRéponds UNIQUEMENT avec ce JSON (sans markdown) : {{\"found\": true/false, \"summary\": \"résumé\", \"price\": null, \"url\": null, \"confidence\": \"low\"}}"}
+                ]
+            )
+            retry_text = "".join(b.text for b in retry.content if hasattr(b, "text"))
+            for start in range(len(retry_text)):
+                if retry_text[start] == "{":
+                    for end in range(len(retry_text), start, -1):
+                        if retry_text[end-1] == "}":
+                            try:
+                                parsed = json.loads(retry_text[start:end])
+                                break
+                            except Exception:
+                                continue
+                if parsed:
+                    break
+
+        if not parsed:
             return {"site": domain, "found": False, "error": "Réponse non parseable", "summary": text[:200]}
 
-        parsed = json.loads(text[start:end])
         parsed["site"] = domain
         parsed["raw_url"] = site
         return parsed
