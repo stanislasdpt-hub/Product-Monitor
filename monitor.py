@@ -2,13 +2,10 @@ import os
 import re
 import json
 import time
-import smtplib
 import schedule
 import requests
 import anthropic
 from datetime import datetime
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
 
 ANTHROPIC_API_KEY = os.environ["ANTHROPIC_API_KEY"]
 PRODUCT           = os.environ["PRODUCT"]
@@ -16,9 +13,7 @@ SITES             = os.environ["SITES"].split(",")
 CONDITIONS        = os.environ.get("CONDITIONS", "")
 EMAIL_TO          = os.environ["EMAIL_TO"]
 EMAIL_FROM        = os.environ["EMAIL_FROM"]
-EMAIL_PASSWORD    = os.environ["EMAIL_PASSWORD"]
-SMTP_HOST         = os.environ.get("SMTP_HOST", "smtp.gmail.com")
-SMTP_PORT         = int(os.environ.get("SMTP_PORT", "587"))
+SENDGRID_API_KEY  = os.environ["SENDGRID_API_KEY"]
 INTERVAL_MINUTES  = int(os.environ.get("INTERVAL_MINUTES", "60"))
 SCRAPER_API_KEY   = os.environ.get("SCRAPER_API_KEY", "")
 
@@ -128,16 +123,27 @@ def send_alert(new_findings: list):
       <p style="color:#888;font-size:12px;margin-top:24px">Prochain scan dans {INTERVAL_MINUTES} min</p>
     </div>"""
 
-    msg = MIMEMultipart("alternative")
-    msg["Subject"] = f"[Nouveau listing] {PRODUCT} sur {len(new_findings)} site(s)"
-    msg["From"] = EMAIL_FROM
-    msg["To"] = EMAIL_TO
-    msg.attach(MIMEText(html, "html"))
-    with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as server:
-        server.starttls()
-        server.login(EMAIL_FROM, EMAIL_PASSWORD)
-        server.sendmail(EMAIL_FROM, EMAIL_TO, msg.as_string())
-    print(f"Email envoyé — {len(new_findings)} nouveau(x) référencement(s)")
+    payload = {
+        "personalizations": [{"to": [{"email": EMAIL_TO}]}],
+        "from": {"email": EMAIL_FROM},
+        "subject": f"[Nouveau listing] {PRODUCT} sur {len(new_findings)} site(s)",
+        "content": [{"type": "text/html", "value": html}]
+    }
+
+    resp = requests.post(
+        "https://api.sendgrid.com/v3/mail/send",
+        headers={
+            "Authorization": f"Bearer {SENDGRID_API_KEY}",
+            "Content-Type": "application/json"
+        },
+        json=payload,
+        timeout=15
+    )
+
+    if resp.status_code == 202:
+        print(f"Email envoyé via SendGrid — {len(new_findings)} nouveau(x) référencement(s)")
+    else:
+        print(f"Erreur SendGrid : {resp.status_code} — {resp.text}")
 
 def run_scan():
     global previous_states
@@ -179,7 +185,7 @@ def run_scan():
     print(f"Nouveaux : {len(new_findings)} nouveau(x) référencement(s)")
 
     if new_findings:
-        print("Envoi de l'alerte email...")
+        print("Envoi de l'alerte email via SendGrid...")
         send_alert(new_findings)
     else:
         print("Pas de nouveau référencement — pas d'email envoyé")
