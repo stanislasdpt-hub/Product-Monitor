@@ -1,4 +1,5 @@
 import os
+import re
 import json
 import time
 import smtplib
@@ -19,25 +20,35 @@ EMAIL_PASSWORD    = os.environ["EMAIL_PASSWORD"]
 SMTP_HOST         = os.environ.get("SMTP_HOST", "smtp.gmail.com")
 SMTP_PORT         = int(os.environ.get("SMTP_PORT", "587"))
 INTERVAL_MINUTES  = int(os.environ.get("INTERVAL_MINUTES", "60"))
+SCRAPER_API_KEY   = os.environ.get("SCRAPER_API_KEY", "")
 
 client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-    "Accept-Language": "en-AU,en;q=0.9",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+    "Accept-Language": "en-AU,en;q=0.9,fr;q=0.8",
+    "Accept-Encoding": "gzip, deflate, br",
+    "Connection": "keep-alive",
+    "Upgrade-Insecure-Requests": "1",
+    "Cache-Control": "max-age=0",
 }
 
-# Mémoire des états précédents : {site: True/False}
 previous_states = {}
 
+def fetch_page(site: str) -> str:
+    if SCRAPER_API_KEY and "bigw.com.au" in site:
+        scraper_url = f"http://api.scraperapi.com?api_key={SCRAPER_API_KEY}&url={site}"
+        resp = requests.get(scraper_url, timeout=60)
+    else:
+        resp = requests.get(site, headers=HEADERS, timeout=40)
+    return resp.text
+
 def analyse_site(site: str) -> dict:
-    import re
     site = site.strip()
     domain = site.replace("https://", "").replace("http://", "").split("/")[0]
     try:
-        resp = requests.get(site, headers=HEADERS, timeout=20)
-        html = resp.text
+        html = fetch_page(site)
         text_only = re.sub(r"<[^>]+>", " ", html)
         text_only = re.sub(r"\s+", " ", text_only).strip()[:6000]
 
@@ -156,12 +167,10 @@ def run_scan():
         else:
             print(f"absent")
 
-        # Alerte uniquement si c'est une NOUVELLE détection
         if currently_found and not previously_found:
             print(f"    → NOUVEAU référencement sur {domain} !")
             new_findings.append(r)
 
-        # Mise à jour de la mémoire
         previous_states[domain] = currently_found
         time.sleep(2)
 
