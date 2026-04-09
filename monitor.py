@@ -11,9 +11,7 @@ ANTHROPIC_API_KEY = os.environ["ANTHROPIC_API_KEY"]
 PRODUCT           = os.environ["PRODUCT"]
 SITES             = os.environ["SITES"].split(",")
 CONDITIONS        = os.environ.get("CONDITIONS", "")
-EMAIL_TO          = os.environ["EMAIL_TO"]
-EMAIL_FROM        = os.environ["EMAIL_FROM"]
-SENDGRID_API_KEY  = os.environ["SENDGRID_API_KEY"]
+DISCORD_WEBHOOK   = os.environ["DISCORD_WEBHOOK"]
 INTERVAL_MINUTES  = int(os.environ.get("INTERVAL_MINUTES", "60"))
 SCRAPER_API_KEY   = os.environ.get("SCRAPER_API_KEY", "")
 
@@ -89,61 +87,37 @@ Réponds UNIQUEMENT avec ce JSON (sans markdown, sans backticks) :
     except Exception as e:
         return {"site": domain, "found": False, "error": str(e), "raw_url": site}
 
-def send_alert(new_findings: list):
+def send_discord_alert(new_findings: list):
     if not new_findings:
         return
     now = datetime.now().strftime("%d/%m/%Y à %H:%M")
-    rows = ""
+
+    embeds = []
     for r in new_findings:
         price = r.get("price") or "N/A"
         url = r.get("url") or r.get("raw_url", "")
-        link = f'<a href="{url}" style="color:#185FA5">{url[:60]}{"..." if len(url)>60 else ""}</a>' if url else "—"
-        rows += f"""
-        <tr>
-          <td style="padding:10px 12px;border-bottom:1px solid #eee;font-weight:500">{r['site']}</td>
-          <td style="padding:10px 12px;border-bottom:1px solid #eee;color:#3B6D11">{price}</td>
-          <td style="padding:10px 12px;border-bottom:1px solid #eee">{r.get('summary','')}</td>
-          <td style="padding:10px 12px;border-bottom:1px solid #eee;font-size:12px">{link}</td>
-        </tr>"""
-
-    html = f"""<div style="font-family:sans-serif;max-width:700px;margin:auto">
-      <div style="background:#EAF3DE;border-left:4px solid #639922;padding:16px;border-radius:4px;margin-bottom:24px">
-        <strong style="color:#27500A">Nouveau référencement détecté !</strong>
-        <p style="color:#3B6D11;margin:4px 0 0">{PRODUCT} vient d'apparaître sur {len(new_findings)} site(s) — {now}</p>
-      </div>
-      <table style="width:100%;border-collapse:collapse;font-size:14px">
-        <thead><tr style="background:#f5f5f5">
-          <th style="padding:10px 12px;text-align:left">Site</th>
-          <th style="padding:10px 12px;text-align:left">Prix</th>
-          <th style="padding:10px 12px;text-align:left">Résumé</th>
-          <th style="padding:10px 12px;text-align:left">Lien</th>
-        </tr></thead>
-        <tbody>{rows}</tbody>
-      </table>
-      <p style="color:#888;font-size:12px;margin-top:24px">Prochain scan dans {INTERVAL_MINUTES} min</p>
-    </div>"""
+        embeds.append({
+            "title": f"Nouveau listing sur {r['site']} !",
+            "description": r.get("summary", ""),
+            "color": 3066993,
+            "fields": [
+                {"name": "Prix", "value": price, "inline": True},
+                {"name": "Site", "value": r["site"], "inline": True},
+                {"name": "Lien", "value": url, "inline": False},
+            ],
+            "footer": {"text": f"Détecté le {now}"}
+        })
 
     payload = {
-        "personalizations": [{"to": [{"email": EMAIL_TO}]}],
-        "from": {"email": EMAIL_FROM},
-        "subject": f"[Nouveau listing] {PRODUCT} sur {len(new_findings)} site(s)",
-        "content": [{"type": "text/html", "value": html}]
+        "content": f"**Nouveau référencement détecté — {PRODUCT}** sur {len(new_findings)} site(s) !",
+        "embeds": embeds
     }
 
-    resp = requests.post(
-        "https://api.sendgrid.com/v3/mail/send",
-        headers={
-            "Authorization": f"Bearer {SENDGRID_API_KEY}",
-            "Content-Type": "application/json"
-        },
-        json=payload,
-        timeout=15
-    )
-
-    if resp.status_code == 202:
-        print(f"Email envoyé via SendGrid — {len(new_findings)} nouveau(x) référencement(s)")
+    resp = requests.post(DISCORD_WEBHOOK, json=payload, timeout=10)
+    if resp.status_code in (200, 204):
+        print(f"Alerte Discord envoyée — {len(new_findings)} nouveau(x) référencement(s)")
     else:
-        print(f"Erreur SendGrid : {resp.status_code} — {resp.text}")
+        print(f"Erreur Discord : {resp.status_code} — {resp.text}")
 
 def run_scan():
     global previous_states
@@ -185,10 +159,10 @@ def run_scan():
     print(f"Nouveaux : {len(new_findings)} nouveau(x) référencement(s)")
 
     if new_findings:
-        print("Envoi de l'alerte email via SendGrid...")
-        send_alert(new_findings)
+        print("Envoi de l'alerte Discord...")
+        send_discord_alert(new_findings)
     else:
-        print("Pas de nouveau référencement — pas d'email envoyé")
+        print("Pas de nouveau référencement — pas d'alerte envoyée")
 
 if __name__ == "__main__":
     print(f"Surveillance démarrée — scan toutes les {INTERVAL_MINUTES} minutes")
